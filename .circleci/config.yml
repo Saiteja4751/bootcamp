@@ -118,3 +118,9 @@ jobs:
             packer build packer_template_gcp | tee packer.log
             IMAGE_NAME=$(grep -oP "project: \Kpacker-[^ ]+" packer.log | tail -1)
             echo "export IMAGE_NAME=$IMAGE_NAME" >> $BASH_ENV
+
+workflows:
+  version: 2
+  packer-workflow:
+    jobs:
+      - packer-gcp-build
