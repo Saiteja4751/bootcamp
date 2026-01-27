@@ -116,11 +116,11 @@ jobs:
       # ----------------------------
       - run:
           name: Packer Init
-          command: packer init packer_template_gcp
+          command: packer init packer_template_gcp/gcp-ubuntu.pkr.hcl
 
       - run:
           name: Packer Validate
-          command: packer validate packer_template_gcp
+          command: packer validate packer_template_gcp/gcp-ubuntu.pkr.hcl
 
       # ----------------------------
       # Packer Build
