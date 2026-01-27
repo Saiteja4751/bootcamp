@@ -96,7 +96,7 @@ jobs:
             cat <<EOF > packer_template_gcp/secrets.auto.pkrvars.hcl
             admin_password = "${ADMIN_PASSWORD}"
             user1_password = "${USER1_PASSWORD}"
-            EOF
+            EOF >>
 
       # ----------------------------
       # Packer Init & Validate
