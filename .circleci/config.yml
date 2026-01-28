@@ -134,7 +134,10 @@ jobs:
 
       - run:
           name: Packer Validate
-          command: packer validate ./packer_template_gcp
+          command: |
+            cd packer_template_gcp
+            ls -lart
+            packer validate .
 
       # ----------------------------
       # Packer Build
