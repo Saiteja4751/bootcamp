@@ -137,7 +137,10 @@ jobs:
           command: |
             cd packer_template_gcp
             ls -lart
-            packer validate .
+            packer fmt gcp-ubuntu.pkr.hcl
+            packer validate gcp-ubuntu.pkr.hcl
+
+          
 
       # ----------------------------
       # Packer Build
