@@ -111,6 +111,22 @@ jobs:
             user1_password = "${USER1_PASSWORD}"
             EOF
 
+      - run:
+          name: Debug Packer Directory
+          command: |
+            echo "Current directory:"
+            pwd
+            echo "Repo contents:"
+            ls -la
+            echo "Packer template contents:"
+            ls -la ./packer_template_gcp
+            echo "Packer version:"
+            packer version
+
+
+
+
+
       # ----------------------------
       # Packer Init & Validate
       # ----------------------------
@@ -128,7 +144,7 @@ jobs:
       - run:
           name: Packer Build
           command: |
-            packer build packer_template_gcp | tee packer.log
+            packer build ./packer_template_gcp | tee packer.log
             IMAGE_NAME=$(grep -oP "project: \Kpacker-[^ ]+" packer.log | tail -1)
             echo "export IMAGE_NAME=$IMAGE_NAME" >> $BASH_ENV
 
