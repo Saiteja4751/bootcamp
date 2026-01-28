@@ -125,12 +125,12 @@ jobs:
       # ----------------------------
       # Packer Init & Validate
       # ----------------------------
-      - run:
-          name: Packer Init
-          command: |
-            cd packer_template_gcp
-            ls -lart
-            packer init .
+      # - run:
+      #     name: Packer Init
+      #     command: |
+      #       cd packer_template_gcp
+      #       ls -lart
+      #       packer init .
 
       - run:
           name: Packer Validate
