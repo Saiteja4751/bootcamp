@@ -122,17 +122,15 @@ jobs:
             ls -la ./packer_template_gcp
             echo "Packer version:"
             packer version
-
-
-
-
-
       # ----------------------------
       # Packer Init & Validate
       # ----------------------------
       - run:
           name: Packer Init
-          command: packer init ./packer_template_gcp
+          command: |
+            cd packer_template_gcp
+            ls -lart
+            packer init .
 
       - run:
           name: Packer Validate
