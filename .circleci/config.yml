@@ -4,15 +4,20 @@ jobs:
   packer-gcp-build:
     docker:
       - image: cimg/base:stable
+
     environment:
       VAULT_ADDR: http://127.0.0.1:8200
       VAULT_TOKEN: root
+
     steps:
+      # -----------------------------
+      # Checkout Code
+      # -----------------------------
       - checkout
 
-      # ----------------------------
-      # Install system dependencies
-      # ----------------------------
+      # -----------------------------
+      # Install System Dependencies
+      # -----------------------------
       - run:
           name: Install system packages
           command: |
@@ -20,76 +25,59 @@ jobs:
             sudo apt-get install -y \
               curl unzip gnupg lsb-release jq python3-pip
 
-      # ----------------------------
-      # Install gcloud SDK
-      # ----------------------------
-      - run:
-          name: Install gcloud SDK
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates gnupg
-            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | \
-              sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
-            curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
-              sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
-            sudo apt-get update
-            sudo apt-get install -y google-cloud-cli
-            gcloud version
-
-      # ----------------------------
-      # Authenticate to GCP
-      # ----------------------------
-      - run:
-          name: Authenticate to Google Cloud
-          command: |
-            echo "$GCP_SA_KEY" > gcp-key.json
-            gcloud auth activate-service-account --key-file=gcp-key.json
-            gcloud auth list
-
-      # ----------------------------
-      # Install Ansible dependencies
-      # ----------------------------
+      # -----------------------------
+      # Install Ansible
+      # -----------------------------
       - run:
           name: Install Ansible deps
           command: |
             pip3 install ansible passlib
 
-      # ----------------------------
+      # -----------------------------
       # Install Packer & Vault
-      # ----------------------------
+      # -----------------------------
       - run:
           name: Install Packer & Vault
           command: |
-            # Install packer via apt
-            curl -fsSL https://apt.releases.hashicorp.com/gpg | \
-              sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+            curl -fsSL https://apt.releases.hashicorp.com/gpg \
+              | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
 
             echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-              https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
-              sudo tee /etc/apt/sources.list.d/hashicorp.list
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/hashicorp.list
 
             sudo apt-get update
-            sudo apt-get install -y packer unzip
+            sudo apt-get install -y packer vault
 
-            # Install vault via binary (recommended)
-            VAULT_VERSION="1.15.5"
-            curl -fsSL https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip -o vault.zip
-            unzip vault.zip
-            sudo mv vault /usr/local/bin/
-            vault version
+            packer --version
+            vault --version
 
-      # ----------------------------
-      # Start Vault (dev mode)
-      # ----------------------------
+      # -----------------------------
+      # Start Vault Dev Server
+      # -----------------------------
       - run:
           name: Start Vault
           command: |
             vault server -dev -dev-root-token-id=root > vault.log 2>&1 &
             sleep 5
 
-      # ----------------------------
-      # Configure Vault secrets
-      # ----------------------------
+      # -----------------------------
+      # Validate Vault
+      # -----------------------------
+      - run:
+          name: Validate Vault status
+          command: vault status
+
+      - run:
+          name: Validate Vault KV engine
+          command: |
+            vault secrets list | grep -q '^secret/' \
+              && echo "Vault KV engine enabled" \
+              || (echo "KV engine missing" && exit 1)
+
+      # -----------------------------
+      # Configure Vault Secrets
+      # -----------------------------
       - run:
           name: Configure Vault Secrets
           command: |
@@ -97,89 +85,86 @@ jobs:
               admin_password="$ADMIN_PASSWORD" \
               user1_password="$USER1_PASSWORD"
 
-      # ----------------------------
+      # -----------------------------
+      # Validate Vault Secrets
+      # -----------------------------
+      - run:
+          name: Validate secrets
+          command: |
+            vault kv get secret/packer/ansible
+            vault kv get -field=admin_password secret/packer/ansible
+            vault kv get -field=user1_password secret/packer/ansible
+
+      # -----------------------------
       # Create Packer vars file
-      # ----------------------------
+      # -----------------------------
       - run:
           name: Create Packer vars from Vault
           command: |
             ADMIN_PASSWORD=$(vault kv get -field=admin_password secret/packer/ansible)
             USER1_PASSWORD=$(vault kv get -field=user1_password secret/packer/ansible)
 
-            cat \<<EOF > packer_template_gcp/secrets.auto.pkrvars.hcl
+            cat <<EOF > packer_template_gcp/secrets.auto.pkrvars.hcl
             admin_password = "${ADMIN_PASSWORD}"
             user1_password = "${USER1_PASSWORD}"
             EOF
 
+            chmod 600 packer_template_gcp/secrets.auto.pkrvars.hcl
+
+      # -----------------------------
+      # Create GCP credentials file
+      # -----------------------------
       - run:
-          name: Debug Packer Directory
+          name: Create GCP credentials
           command: |
-            echo "Current directory:"
-            pwd
-            echo "Repo contents:"
-            ls -la
-            echo "Packer template contents:"
-            ls -la ./packer_template_gcp
-            echo "Packer version:"
-            packer version
-      # ----------------------------
+            echo "$GCP_SA_KEY" > gcp-key.json
+            chmod 600 gcp-key.json
+
+      # -----------------------------
       # Packer Init & Validate
-      # ----------------------------
-      # - run:
-      #     name: Packer Init
-      #     command: |
-      #       cd packer_template_gcp
-      #       ls -lart
-      #       packer init .
-      - run:
-          name: Install Packer & Vault
-          command: |
-            # Install packer via apt
-            curl -fsSL https://apt.releases.hashicorp.com/gpg | \
-              sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-
-            echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-              https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
-              sudo tee /etc/apt/sources.list.d/hashicorp.list
-
-            sudo apt-get update
-            sudo apt-get install -y packer unzip
-
-            # Install vault via binary (recommended)
-            VAULT_VERSION="1.15.5"
-            curl -fsSL https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip -o vault.zip
-            unzip vault.zip
-            sudo mv vault /usr/local/bin/
-            vault version
+      # -----------------------------
       - run:
           name: Packer Init
-          command: |
-            cd packer_template_gcp
-            ls -lart
-            packer init .
-          
+          command: packer init packer_template_gcp
+
       - run:
           name: Packer Validate
-          command: |
-            cd packer_template_gcp
-            ls -lart
-            packer fmt gcp-ubuntu.pkr.hcl
-            packer validate gcp-ubuntu.pkr.hcl
+          environment:
+            GOOGLE_APPLICATION_CREDENTIALS: /home/circleci/project/gcp-key.json
+          command: packer validate packer_template_gcp
 
-          
-
-      # ----------------------------
+      # -----------------------------
       # Packer Build
-      # ----------------------------
+      # -----------------------------
       - run:
-          name: Packer Build
+          name: Packer Build & Capture Image Name
+          environment:
+            GOOGLE_APPLICATION_CREDENTIALS: /home/circleci/project/gcp-key.json
           command: |
-            packer build ./packer_template_gcp | tee packer.log
-            IMAGE_NAME=$(grep -oP "project: \Kpacker-[^ ]+" packer.log | tail -1)
+            packer build packer_template_gcp | tee packer.log
+
+            IMAGE_NAME=$(grep -oP "packer-[^ ]+" packer.log | tail -1)
+
+            if [ -z "$IMAGE_NAME" ]; then
+              echo "Failed to extract image name"
+              exit 1
+            fi
+
+            echo "Built Image: $IMAGE_NAME"
             echo "export IMAGE_NAME=$IMAGE_NAME" >> $BASH_ENV
+
+      - run:
+          name: Show Image Name
+          command: |
+            source $BASH_ENV
+            echo "Final Image Name: $IMAGE_NAME"
 
 workflows:
   version: 2
   packer-workflow:
     jobs:
-      - packer-gcp-build
+      - packer-gcp-build:
+          filters:
+            branches:
+              only:
+                - main
