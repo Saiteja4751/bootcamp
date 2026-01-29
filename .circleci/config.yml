@@ -23,7 +23,7 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y \
-              curl unzip gnupg lsb-release jq python3-pip
+            curl unzip gnupg lsb-release jq python3-pip
 
       # -----------------------------
       # Install Ansible
@@ -104,10 +104,8 @@ jobs:
             ADMIN_PASSWORD=$(vault kv get -field=admin_password secret/packer/ansible)
             USER1_PASSWORD=$(vault kv get -field=user1_password secret/packer/ansible)
 
-            cat <<EOF > packer_template_gcp/secrets.auto.pkrvars.hcl
-            admin_password = "${ADMIN_PASSWORD}"
-            user1_password = "${USER1_PASSWORD}"
-            EOF
+            echo "admin_password = \"${ADMIN_PASSWORD}\"" | tee packer_template_gcp/secrets.auto.pkrvars.hcl
+            echo "user1_password = \"${USER1_PASSWORD}\"" | tee -a packer_template_gcp/secrets.auto.pkrvars.hcl
 
             chmod 600 packer_template_gcp/secrets.auto.pkrvars.hcl
 
