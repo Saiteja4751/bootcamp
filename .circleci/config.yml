@@ -141,7 +141,7 @@ jobs:
           command: packer validate packer_template_gcp
 
       # -----------------------------
-      # Packer Build
+      # Packer Build for img
       # -----------------------------
       - run:
           name: Packer Build & Capture Image Name
