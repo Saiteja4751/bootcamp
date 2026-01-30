@@ -1,116 +1,93 @@
 version: 2.1
-
+ 
 jobs:
-
-# =====================================================
-# PACKER BUILD JOB
-# =====================================================
+ 
   packer-gcp-build:
     docker:
       - image: cimg/base:stable
-
+ 
     environment:
       VAULT_ADDR: http://127.0.0.1:8200
       VAULT_TOKEN: root
-
+ 
     steps:
       - checkout
-
-      # -----------------------------
-      # Install system packages
-      # -----------------------------
+      
       - run:
           name: Install system packages
           command: |
             sudo apt-get update
             sudo apt-get install -y \
               curl unzip gnupg lsb-release jq python3-pip
-
-      # -----------------------------
-      # Install Ansible
-      # -----------------------------
+ 
       - run:
           name: Install Ansible deps
           command: |
             pip3 install ansible passlib
-
-      # -----------------------------
-      # Install Packer & Vault
-      # -----------------------------
+ 
+ 
       - run:
           name: Install Packer & Vault
           command: |
             PACKER_VERSION="1.10.0"
             VAULT_VERSION="1.15.4"
-
+ 
             curl -fsSL https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip -o packer.zip
             unzip packer.zip
             sudo mv packer /usr/local/bin/
-
+ 
             curl -fsSL https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip -o vault.zip
             unzip vault.zip
             sudo mv vault /usr/local/bin/
-
+ 
             packer --version
             vault --version
-
-      # -----------------------------
-      # Start Vault
-      # -----------------------------
+ 
+ 
       - run:
           name: Start Vault
           command: |
             vault server -dev -dev-root-token-id=root > vault.log 2>&1 &
             sleep 5
             vault status
-
-      # -----------------------------
-      # Configure Vault Secrets
-      # -----------------------------
+ 
+ 
       - run:
           name: Configure Vault Secrets
           command: |
             vault kv put secret/packer/ansible \
               admin_password="$ADMIN_PASSWORD" \
               user1_password="$USER1_PASSWORD"
-
-      # -----------------------------
-      # Create Packer vars
-      # -----------------------------
+ 
       - run:
           name: Create Packer vars
           command: |
             ADMIN_PASSWORD=$(vault kv get -field=admin_password secret/packer/ansible)
             USER1_PASSWORD=$(vault kv get -field=user1_password secret/packer/ansible)
-
+ 
             echo "admin_password = \"${ADMIN_PASSWORD}\"" > packer_template_gcp/secrets.auto.pkrvars.hcl
             echo "user1_password = \"${USER1_PASSWORD}\"" >> packer_template_gcp/secrets.auto.pkrvars.hcl
+ 
             chmod 600 packer_template_gcp/secrets.auto.pkrvars.hcl
-
-      # -----------------------------
-      # Create GCP credentials
-      # -----------------------------
+ 
       - run:
           name: Create GCP credentials
           command: |
             echo "$GCP_SA_KEY" > gcp-key.json
             chmod 600 gcp-key.json
-
-      # -----------------------------
-      # Packer Init & Validate
-      # -----------------------------
+ 
       - run:
           name: Packer Init
           command: packer init packer_template_gcp
-
+ 
       - run:
           name: Packer Validate
           environment:
             GOOGLE_APPLICATION_CREDENTIALS: /home/circleci/project/gcp-key.json
           command: packer validate packer_template_gcp
-
+ 
       # -----------------------------
-      # Packer Build
+      # Packer Build & Capture Image
       # -----------------------------
       - run:
           name: Packer Build
@@ -118,127 +95,22 @@ jobs:
             GOOGLE_APPLICATION_CREDENTIALS: /home/circleci/project/gcp-key.json
           command: |
             packer build packer_template_gcp | tee packer.log
-
+ 
             IMAGE_NAME=$(grep -oP "packer-[^ ]+" packer.log | tail -1)
-
+ 
             if [ -z "$IMAGE_NAME" ]; then
-              echo "❌ Image name not found"
+              echo "Image name not found"
               exit 1
             fi
-
-            echo "$IMAGE_NAME" > image_name.txt
-            echo "✅ Built Image: $IMAGE_NAME"
-
-      # -----------------------------
-      # Persist Image Name
-      # -----------------------------
-      - persist_to_workspace:
-          root: .
-          paths:
-            - image_name.txt
-            - gcp-key.json
-
-# =====================================================
-# TERRAFORM DEPLOY JOB
-# =====================================================
-  terraform-gcp-deploy:
-    docker:
-      - image: cimg/base:stable
-
-    steps:
-      - checkout
-
-      # -----------------------------
-      # Attach workspace
-      # -----------------------------
-      - attach_workspace:
-          at: .
-
-      # -----------------------------
-      # Load Image Name
-      # -----------------------------
-      - run:
-          name: Load Image Name
-          command: |
-            IMAGE_NAME=$(cat image_name.txt)
-            echo "Using Image: $IMAGE_NAME"
+ 
             echo "export IMAGE_NAME=$IMAGE_NAME" >> $BASH_ENV
-
-      # -----------------------------
-      # Install Terraform
-      # -----------------------------
+ 
       - run:
-          name: Install Terraform
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y \
-              ca-certificates \
-              curl \
-              gnupg \
-              lsb-release
-
-            curl -fsSL https://apt.releases.hashicorp.com/gpg \
-              | sudo gpg --dearmor \
-              | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-
-            echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-            https://apt.releases.hashicorp.com \
-            $(lsb_release -cs) main" \
-            | sudo tee /etc/apt/sources.list.d/hashicorp.list
-
-            sudo apt-get update
-            sudo apt-get install -y terraform
-
-            terraform --version
-            
-      # -----------------------------
-      # Generate SSH Key
-      # -----------------------------
-      - run:
-          name: Generate SSH key
-          command: |
-            mkdir -p ~/.ssh
-            ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-            echo "export SSH_PUBLIC_KEY=$(cat ~/.ssh/id_ed25519.pub)" >> $BASH_ENV
-
-      # -----------------------------
-      # Terraform Init
-      # -----------------------------
-      - run:
-          name: Terraform Init
+          name: Show Image Name
           command: |
             source $BASH_ENV
-            cd terraform-gcp
-            terraform init
+            echo "Built Image: $IMAGE_NAME"
 
-      # -----------------------------
-      # Terraform Plan
-      # -----------------------------
-      - run:
-          name: Terraform Plan
-          command: |
-            source $BASH_ENV
-            cd terraform-gcp
-            terraform plan \
-              -var="image_name=$IMAGE_NAME" \
-              -var="ssh_public_key=$SSH_PUBLIC_KEY"
-
-      # -----------------------------
-      # Terraform Apply
-      # -----------------------------
-      - run:
-          name: Terraform Apply
-          command: |
-            source $BASH_ENV
-            cd terraform-gcp
-            terraform apply \
-              -var="image_name=$IMAGE_NAME" \
-              -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-              -auto-approve
-
-# =====================================================
-# WORKFLOW
-# =====================================================
 workflows:
   version: 2
 
@@ -248,7 +120,3 @@ workflows:
           filters:
             branches:
               only: main
-
-      - terraform-gcp-deploy:
-          requires:
-            - packer-gcp-build
